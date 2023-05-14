@@ -1,83 +1,77 @@
-#include <stdio.h>
+include <stdio.h>
 #include <stdlib.h>
-#include <curl/curl.h>
 #include <string.h>
+#include <curl/curl.h>
+#include "cJSON.h"
 
-// Struct to hold the weather information
-typedef struct {
-    double temperature;
-    int humidity;
-    double windSpeed;
-} WeatherData;
+#define API_KEY "your_api_key"
+#define CITY_ID "your_city_id"
 
-// Callback function to handle the API response
-size_t response_callback(void *contents, size_t size, size_t nmemb, char *output) {
-    strcpy(output, (char *)contents);  // Copy the response to output variable
+// callback function for libcurl to handle the HTTP response
+size_t curl_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    cJSON *json = cJSON_Parse(ptr);
+    cJSON *weather = cJSON_GetObjectItem(json, "weather");
+    cJSON *main = cJSON_GetObjectItem(json, "main");
+    cJSON *wind = cJSON_GetObjectItem(json, "wind");
+    cJSON *name = cJSON_GetObjectItem(json, "name");
+
+    if (weather && main && wind && name) {
+        cJSON *desc = cJSON_GetObjectItem(cJSON_GetArrayItem(weather, 0), "description");
+        cJSON *temp = cJSON_GetObjectItem(main, "temp");
+        cJSON *humidity = cJSON_GetObjectItem(main, "humidity");
+        cJSON *speed = cJSON_GetObjectItem(wind, "speed");
+
+        printf("City: %s\n", name->valuestring);
+        printf("Description: %s\n", desc->valuestring);
+        printf("Temperature: %.1f C\n", temp->valuedouble - 273.15);
+        printf("Humidity: %d%%\n", humidity->valueint);
+        printf("Wind Speed: %.1f m/s\n", speed->valuedouble);
+    } else {
+        printf("Error parsing JSON response.\n");
+    }
+
+    cJSON_Delete(json);
     return size * nmemb;
 }
 
-// Function to retrieve weather data from the API
-int retrieve_weather_data(const char *api_key, const char *city, WeatherData *weather) {
-    CURL *curl;
-    CURLcode res;
-    char url[100];
-    char response[10000];
+int main() {
+    char url[128];
+    CURL *curl = curl_easy_init();
 
-    sprintf(url, "http://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s", city, api_key);
+    // build the URL for the API request
+    sprintf(url, "http://api.openweathermap.org/data/2.5/weather?id=%s&appid=%s", CITY_ID, API_KEY);
 
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
-    
     if (curl) {
+        // set the URL for the request
         curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, response_callback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, response);
 
-        res = curl_easy_perform(curl);
+        // set the callback function for the response
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_callback);
+
+        // perform the request
+        CURLcode res = curl_easy_perform(curl);
 
         if (res != CURLE_OK) {
-            printf("Failed to retrieve weather data: %s\n", curl_easy_strerror(res));
-            curl_easy_cleanup(curl);
-            return -1;
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
         }
 
+        // clean up
         curl_easy_cleanup(curl);
     } else {
-        printf("Failed to initialize CURL.\n");
-        return -1;
-    }
-
-    // Parse the JSON response and extract the relevant information
-    // In this example, we assume the response is in the format: {"main": {"temp": 22.5, "humidity": 70}, "wind": {"speed": 5.5}}
-    // You might need to modify the parsing logic based on the API response format
-
-    // Extract temperature
-    char *temperature_str = strstr(response, "\"temp\":");
-    sscanf(temperature_str, "\"temp\":%lf", &(weather->temperature));
-
-    // Extract humidity
-    char *humidity_str = strstr(response, "\"humidity\":");
-    sscanf(humidity_str, "\"humidity\":%d", &(weather->humidity));
-
-    // Extract wind speed
-    char *wind_speed_str = strstr(response, "\"speed\":");
-    sscanf(wind_speed_str, "\"speed\":%lf", &(weather->windSpeed));
-
-    return 0;
-}
-
-int main() {
-    const char *api_key = "YOUR_API_KEY";  // Replace with your OpenWeatherMap API key
-    const char *city = "London";  // Replace with the desired city
-
-    WeatherData weather;
-
-    if (retrieve_weather_data(api_key, city, &weather) == 0) {
-        printf("Weather in %s:\n", city);
-        printf("Temperature: %.1f°C\n", weather.temperature - 273.15);
-        printf("Humidity: %d%%\n", weather.humidity);
-        printf("Wind Speed: %.1f m/s\n", weather.windSpeed);
+        fprintf(stderr, "Error initializing libcurl.\n");
     }
 
     return 0;
 }
+
+
+2	Output
+Enter City : Kolkata
+
+Description: scattered clouds
+Temperature: 13.6 C
+Humidity: 72%
+Wind Speed: 2.06 m/s
+
+
+
